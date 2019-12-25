@@ -483,7 +483,8 @@ ray_trace_through_hyperboloid_tet(inout RayHit ray_hit)
 {
     int entry_object_type = ray_hit.object_type;
     int entry_object_index = ray_hit.object_index;
- 
+    // Clip any objects below inside_cusp_param. Used to remove objects inside of cusp objects (horospheres or "margulis tubes")
+    float inside_cusp_param = -1.0;
     ///Given shape of a tet and a ray, find where the ray exits and through which face
     float smallest_p = 100000000.0;
 
@@ -510,18 +511,6 @@ ray_trace_through_hyperboloid_tet(inout RayHit ray_hit)
         }
     }
 
-    {
-        float p = distParamsForSphereIntersection(
-            ray_hit.ray,
-            vec4(1,0,0,0),
-            insphere_radii[ray_hit.tet_num]).x;
-        if (p < smallest_p) {
-            smallest_p = p;
-            ray_hit.object_type = object_type_sphere;
-            ray_hit.object_index = 0;
-        }
-    }
-
     for (int vertex = 0; vertex < 4; vertex++) {
         int index = 4 * ray_hit.tet_num + vertex;
         if (horosphereScales[index] != 0.0) {
@@ -532,39 +521,25 @@ ray_trace_through_hyperboloid_tet(inout RayHit ray_hit)
                 ray_hit.object_type = object_type_horosphere;
                 ray_hit.object_index = vertex;
             }
-            else if (params.y < smallest_p){ // we are inside looking out, we draw only the meridian and longitude
-                RayHit ray_hit_test = ray_hit;
-                ray_hit_test.object_type = object_type_horosphere;
-                ray_hit_test.object_index = vertex;
-                ray_hit_test.dist += atanh(params.y);
-                advanceRayByDistParam(ray_hit_test.ray, params.y);
-                vec2 coords = MLCoordinatesForRayHit(ray_hit_test);
-                if (coords.x <       peripheralCurveThickness ||
-                    coords.x > 1.0 - peripheralCurveThickness ||
-                    coords.y <       peripheralCurveThickness ||
-                    coords.y > 1.0 - peripheralCurveThickness) {
-                    smallest_p = params.y;
-                    ray_hit.object_type = object_type_horosphere;
-                    ray_hit.object_index = vertex;
+            else if (params.x == unreachableDistParam && params.y != unreachableDistParam) {
+                inside_cusp_param = params.y;
+                if (params.y < smallest_p){ // we are inside looking out, we draw only the meridian and longitude
+                    RayHit ray_hit_test = ray_hit;
+                    ray_hit_test.object_type = object_type_horosphere;
+                    ray_hit_test.object_index = vertex;
+                    ray_hit_test.dist += atanh(params.y);
+                    advanceRayByDistParam(ray_hit_test.ray, params.y);
+                    vec2 coords = MLCoordinatesForRayHit(ray_hit_test);
+                    if (coords.x <       peripheralCurveThickness ||
+                        coords.x > 1.0 - peripheralCurveThickness ||
+                        coords.y <       peripheralCurveThickness ||
+                        coords.y > 1.0 - peripheralCurveThickness) {
+                    // {
+                        smallest_p = params.y;
+                        ray_hit.object_type = object_type_horosphere;
+                        ray_hit.object_index = vertex;
+                    }
                 }
-            }
-        }
-    }
-                
-    float backDistParam = tanh(-ray_hit.dist);
-
-    if (edgeTubeRadiusParam > 0.50001) {
-        for (int edge = 0; edge < 6; edge++) {
-            float p = distParamsForTubeIntersection(
-                ray_hit.ray,
-                endpointsForEdge(ray_hit.tet_num, edge),
-                edgeTubeRadiusParam,
-                backDistParam).x;
-            
-            if (p < smallest_p) {
-                smallest_p = p;
-                ray_hit.object_type = object_type_edge_cylinder;
-                ray_hit.object_index = edge;
             }
         }
     }
@@ -584,21 +559,55 @@ ray_trace_through_hyperboloid_tet(inout RayHit ray_hit)
                 ray_hit.object_type = object_type_margulis_tube;
                 ray_hit.object_index = vertex;
             }
-            else if (params.y < smallest_p){ // we are inside looking out, we draw only the meridian and longitude
-                RayHit ray_hit_test = ray_hit;
-                ray_hit_test.object_type = object_type_margulis_tube;
-                ray_hit_test.object_index = vertex;
-                ray_hit_test.dist += atanh(params.y);
-                advanceRayByDistParam(ray_hit_test.ray, params.y);
-                vec2 coords = MLCoordinatesForRayHit(ray_hit_test);
-                if (coords.x <       peripheralCurveThickness ||
-                    coords.x > 1.0 - peripheralCurveThickness ||
-                    coords.y <       peripheralCurveThickness ||
-                    coords.y > 1.0 - peripheralCurveThickness) {
-                    smallest_p = params.y;
-                    ray_hit.object_type = object_type_margulis_tube;
-                    ray_hit.object_index = vertex;
+            else if (params.x == unreachableDistParam && params.y != unreachableDistParam) {
+                inside_cusp_param = params.y;
+                if (params.y < smallest_p){ // we are inside looking out, we draw only the meridian and longitude
+                    RayHit ray_hit_test = ray_hit;
+                    ray_hit_test.object_type = object_type_margulis_tube;
+                    ray_hit_test.object_index = vertex;
+                    ray_hit_test.dist += atanh(params.y);
+                    advanceRayByDistParam(ray_hit_test.ray, params.y);
+                    vec2 coords = MLCoordinatesForRayHit(ray_hit_test);
+                    if (coords.x <       peripheralCurveThickness ||
+                        coords.x > 1.0 - peripheralCurveThickness ||
+                        coords.y <       peripheralCurveThickness ||
+                        coords.y > 1.0 - peripheralCurveThickness) {
+                        smallest_p = params.y;
+                        ray_hit.object_type = object_type_margulis_tube;
+                        ray_hit.object_index = vertex;
+                    }
                 }
+            }
+        }
+    }    
+
+    {
+        float p = distParamsForSphereIntersection(
+            ray_hit.ray,
+            vec4(1,0,0,0),
+            insphere_radii[ray_hit.tet_num]).x;
+        if (inside_cusp_param < p && p < smallest_p) {
+            smallest_p = p;
+            ray_hit.object_type = object_type_sphere;
+            ray_hit.object_index = 0;
+        }
+    }
+                
+    float backDistParam = tanh(-ray_hit.dist);
+
+    if (edgeTubeRadiusParam > 0.50001) {
+        for (int edge = 0; edge < 6; edge++) {
+            float p = distParamsForTubeIntersection(
+                ray_hit.ray,
+                endpointsForEdge(ray_hit.tet_num, edge),
+                edgeTubeRadiusParam,
+                backDistParam).x;  // weird spikes on inside of edge tubes as seen from inside cusp are something to do with this
+                // 0.0).x;
+            
+            if (inside_cusp_param < p && p < smallest_p) {
+                smallest_p = p;
+                ray_hit.object_type = object_type_edge_cylinder;
+                ray_hit.object_index = edge;
             }
         }
     }
@@ -607,7 +616,7 @@ ray_trace_through_hyperboloid_tet(inout RayHit ray_hit)
     advanceRayByDistParam(ray_hit.ray, smallest_p);
 
     if(edgeThickness > 0.00001) {
-        if (ray_hit.object_type == object_type_face) {
+        if (ray_hit.object_type == object_type_face && smallest_p > inside_cusp_param ) {
             if(triangleBdryParam(ray_hit.ray.point, ray_hit.tet_num, ray_hit.object_index) < edgeThickness) {
                 ray_hit.object_type = object_type_edge_fan;
             }
@@ -902,3 +911,4 @@ void main(){
     
     out_FragColor = vec4(color, 1);
 }
+// 
